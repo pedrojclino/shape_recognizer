@@ -1,14 +1,7 @@
 import numpy as np
 import cv2
-from scipy import signal
 
-def find_contour_children(child_contours, parent_idx, root_hierarchy):
-    for child_idx, row in enumerate(root_hierarchy):
-        if row[3] == parent_idx:
-            child_contours.append(child_idx)
-            find_contour_children(child_contours, child_idx, root_hierarchy)
-
-def gen_descriptors(image, debug : bool, sensitivity = 0.01):
+def gen_descriptors(image, debug : bool, sensitivity):
 
     # Binarize
     if len(image.shape) == 3:
@@ -29,11 +22,6 @@ def gen_descriptors(image, debug : bool, sensitivity = 0.01):
         if root_hierarchy[0][idx][3] == -1:
             ext_contour = root_contours[idx]
 
-            # Count child contours recursively
-            child_contour_indexes = []
-            find_contour_children(child_contour_indexes, idx, root_hierarchy[0])
-            n_child_contours = len(child_contour_indexes) 
-
             # Filter contours
             x, y, w, h = cv2.boundingRect(ext_contour)
             if w * h < sensitivity * img_area or 0.8 * img_area < w * h:
@@ -41,14 +29,19 @@ def gen_descriptors(image, debug : bool, sensitivity = 0.01):
 
             # Create a roi of the binary filled with white contour
             binary_local = np.zeros((image.shape[0] , image.shape[1]), dtype=np.uint8)
+            
             cv2.drawContours(binary_local, [ext_contour], -1, (255, 255, 255), thickness=-1)
 
             sub_contours, _ = cv2.findContours(binary_local, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            if len(sub_contours) == 0:
+                continue
 
-            descriptors.append(ShapeDescriptor((x, y, w, h), sub_contours[0], n_child_contours))
+            descriptors.append(ShapeDescriptor((x, y, w, h), sub_contours[0]))
 
             if debug:
-                cv2.drawContours(image, [ descriptors[-1].simple_contour ], -1, (0, 0, 255), 2)
+                for pt_idx, pt in enumerate(descriptors[-1].contour):
+                   cv2.putText(image, str(pt_idx), (pt[0], pt[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                cv2.drawContours(image, [ descriptors[-1].contour ], -1, (0, 0, 255), 2)
                 cv2.imshow("Debug",image)
                 cv2.waitKey(1000)
 
@@ -56,6 +49,8 @@ def gen_descriptors(image, debug : bool, sensitivity = 0.01):
 
 
 class ImageQualification:
+
+    valid_score_th = 0.7
 
     class NamedDescriptor:
         def __init__(self, name, descriptor):
@@ -80,30 +75,21 @@ class CombinedDescriptorData:
 
     class LocalDescriptorData:
         def __init__(self):
-            self.n_child_contours = None
+            self.versors = None
             self.resolution = None
-            self.lengths = None
-            self.angles = None
 
         def to_json_descriptor(self):
             json_descriptor = dict()
-            json_descriptor["angles"] = self.angles.tolist()
-            json_descriptor["lengths"] = self.lengths.tolist()
-            json_descriptor["n_child_contours"] = self.n_child_contours
-            json_descriptor["resolution"] = self.resolution
+            json_descriptor["versors"] = self.versors.tolist()
             return json_descriptor
 
         def from_json_descriptor(self, json_descriptor : dict):
-            self.n_child_contours = json_descriptor["n_child_contours"]
-            self.resolution = json_descriptor["resolution"]
-            self.lengths = np.array(json_descriptor["lengths"])
-            self.angles = np.array(json_descriptor["angles"])
+            self.versors = np.array(json_descriptor["versors"])
+            self.resolution = len(self.versors)
 
         def from_shape_descriptor(self, shape_descriptor : ShapeDescriptor):
-            self.n_child_contours = shape_descriptor.n_child_contours
-            self.resolution = shape_descriptor.resolution
-            self.lengths = shape_descriptor.lengths
-            self.angles = shape_descriptor.angles
+            self.versors = shape_descriptor.versors
+            self.resolution = len(self.versors)
 
     def __init__(self):
         self.local_descriptors : list[CombinedDescriptorData.LocalDescriptorData] = list() 
@@ -134,33 +120,18 @@ class CombinedDescriptorData:
         n = len(self.local_descriptors)
         descriptor_similarities = np.zeros(n)
         for idx, local_descriptor in enumerate(self.local_descriptors):
-
-            # Only compare descriptors of the same size
-            if local_descriptor.resolution != shape_descriptor.resolution:
-                continue
-
-            if local_descriptor.n_child_contours != shape_descriptor.n_child_contours:
+    
+            # Only compare descriptors with different resolutions on specific cases
+            if shape_descriptor.resolution == 0:
                 continue
             
-            # Improve correlations by aligning by angles
-            a_centered = local_descriptor.angles - np.mean(local_descriptor.angles)
-            b_centered = shape_descriptor.angles - np.mean(shape_descriptor.angles)
-
-            # Compute cross-correlation
-            corr = signal.correlate(a_centered, b_centered, mode='full')
-            shift = np.argmax(corr) - (local_descriptor.resolution - 1)
-            if local_descriptor.resolution // 4 < np.abs(shift): # Protect agaist -+90º rotations
-                shift = 0 
-            shape_descriptor_angles = np.roll(shape_descriptor.angles, shift)
-            shape_descriptor_lengths = np.roll(shape_descriptor.lengths, shift)
-
-            # NOTE: already normalized
-            angle_sim = local_descriptor.angles - shape_descriptor_angles
-            angle_sim = 1 - np.dot(angle_sim,angle_sim)
-            lenght_sim = local_descriptor.lengths - shape_descriptor_lengths
-            lenght_sim = 1 - np.dot(lenght_sim,lenght_sim)
-
-            descriptor_similarities[idx] = angle_sim * lenght_sim
+            if local_descriptor.resolution != shape_descriptor.resolution:
+                continue
+            
+            # Evaluate vector differences
+            versors_diff = local_descriptor.versors - shape_descriptor.versors
+            n = np.sum([np.linalg.norm(vec) for vec in versors_diff])
+            descriptor_similarities[idx] = 1 - n / 2
 
         if 0 < len(descriptor_similarities):
             return descriptor_similarities.max()
@@ -168,47 +139,36 @@ class CombinedDescriptorData:
             return 0
 
 class ShapeDescriptor:
-    
-    def __init__(self, region, contour, n_child_contours):
-        self.region = region # (x, y, w, h)
-        self.n_child_contours = n_child_contours
 
-        # Approximate the contour
+    def __init__(self, region, contour):
+        self.region = region # (x, y, w, h)
+
+        # Simplify the contour
         arc_len = cv2.arcLength(contour, True)
         epsilon = 0.04* arc_len
-        self.simple_contour = cv2.approxPolyDP(contour, epsilon, True)
+        self.contour = cv2.approxPolyDP(contour, epsilon, True)
 
-        self.simple_contour = self.simple_contour.reshape(-1, 2)
+        self.contour = self.contour.reshape(-1, 2)
 
-        p_range = range(1,len(self.simple_contour))
+
+        arc_len = cv2.arcLength(self.contour, True)
+        p_range = range(1,len(self.contour))
         self.resolution = len(p_range)
-        self.angles = np.empty(self.resolution)
-        self.lengths = np.empty(self.resolution)
+        lengths = np.empty(self.resolution)
+        self.versors = np.empty((self.resolution,2))
         for idx, p_idx in enumerate(p_range):
-            p_prev = self.simple_contour[p_idx-1]
-            p_curr = self.simple_contour[p_idx]
-
-            if p_idx+1 >= len(self.simple_contour):
-                p_next = self.simple_contour[0]
-            else:
-                p_next = self.simple_contour[p_idx+1]
+            p_prev = self.contour[p_idx-1]
+            p_curr = self.contour[p_idx]
 
             v_prev = p_curr - p_prev
-            v_next = p_next - p_curr
 
             v_prev_norm = np.linalg.norm(v_prev)
-            v_prev = v_prev / v_prev_norm
-            v_next = v_next / np.linalg.norm(v_next)
-            self.angles[idx] = np.dot(v_prev,v_next)
-            
-            v_perp = np.cross(v_prev,v_next)
-            if v_perp < 0:
-                self.angles[idx] *=-1
 
-            self.lengths[idx] = v_prev_norm
+            lengths[idx] = v_prev_norm
+            self.versors[idx] = v_prev / v_prev_norm
 
-        # Normalize [0..1]
-        self.angles = (self.angles + np.pi) / (2 * np.pi)
-        self.lengths /= arc_len
+        # Multiply versors by their normalized lengths
+        lengths /= arc_len
+        self.versors = self.versors * lengths.reshape(-1, 1)
 
 

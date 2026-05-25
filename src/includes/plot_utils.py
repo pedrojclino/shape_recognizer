@@ -3,13 +3,25 @@ import matplotlib.gridspec as gridspec
 import numpy as np
 from matplotlib.patches import Rectangle
 
+import threading
+
+from .descriptor_utils import ImageQualification
+
+# Shared flag to signal exit
+exit_event = threading.Event()
+
+# Function to wait for Enter key press
+def wait_for_enter():
+    input("Press Enter to continue...\n")
+    exit_event.set()
+
 def plot_confusion_matrix(image_qualifications, known_shape_descriptors):
 
 
     for img_qualf in image_qualifications:
         
         # Setup plot handles
-        fig = plt.figure(figsize=(12, 3))
+        fig = plt.figure(figsize=(11, 6))
         gs = gridspec.GridSpec(1, 2, width_ratios=[1, 1], figure=fig)
 
         # Show the image
@@ -25,7 +37,7 @@ def plot_confusion_matrix(image_qualifications, known_shape_descriptors):
             best_shape_name = max(ordered_descriptor.scores, key=ordered_descriptor.scores.get)
 
             # Threshold that defines unknown
-            if ordered_descriptor.scores[best_shape_name] < 0.01:
+            if ordered_descriptor.scores[best_shape_name] < ImageQualification.valid_score_th:
                 best_shape_name = "?"
 
             # TEXT
@@ -66,18 +78,34 @@ def plot_confusion_matrix(image_qualifications, known_shape_descriptors):
         for i in range(confusion_matrix.shape[0]):
             max_idx = np.argmax(confusion_matrix[i, :])
             for j in range(confusion_matrix.shape[1]):
-                ax_right.text(j, i, f"{confusion_matrix[i, j]:.4f}", ha='center', va='center', color='black', 
+                ax_right.text(j, i, f"{confusion_matrix[i, j]:.3f}", ha='center', va='center', color='black', 
                         fontweight='bold' if j == max_idx else 'normal' )
 
         shape_names = known_shape_descriptors.keys()
         ax_right.set_xticks(list(range(0,len(shape_names),1)))
-        ax_right.set_xticklabels(shape_names)
+        ax_right.set_xticklabels(shape_names, rotation=45)
         
         input_names = [ordered_descriptor.name for ordered_descriptor in img_qualf.ordered_descriptors]
         ax_right.set_yticks(list(range(0,len(input_names),1)))
-        ax_right.set_yticklabels(input_names)
+        ax_right.set_yticklabels(input_names, rotation=45)
         
     plt.tight_layout()
+    plt.ion()  # Enable interactive mode
+    plt.rcParams["figure.raise_window"] = False # Stop plt windows from raising on pause()
+    
+    # Allow the user to proceed on "Enter"
+    input_thread = threading.Thread(target=wait_for_enter, daemon=True)
+    input_thread.start()
     plt.show(block=False)
-    input("Press 'Enter' to close the plots.")
+
+    # Poll until all windows are closed
+    while not exit_event.is_set():
+        # Keeps GUI responsive
+        fig.canvas.draw()
+        fig.canvas.flush_events()
+
+        if not plt.get_fignums():
+            print("All windows closed.")
+            break
+
     plt.close('all')

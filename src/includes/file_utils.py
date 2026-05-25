@@ -1,30 +1,13 @@
-import sys
-import os
+import numpy as np
 import json
 
 from .descriptor_utils import CombinedDescriptorData
-
-def default_model_file():
     
-    try:
-        sys._MEIPASS
-        return "model.json"
-    except Exception:
-        return "..\\bin\\model.json"
-    
-def default_output_file():
-    
-    try:
-        sys._MEIPASS
-        return "output.csv"
-    except Exception:
-        return "..\\bin\\output.csv"
-    
-def read_model_file(default_model_file):
+def read_model_file(model_file_path):
 
     known_shape_descriptors = dict()
     try:
-        with open(default_model_file,"r") as f:
+        with open(model_file_path,"r") as f:
 
             data = json.load(f)
             for shape_name, json_descriptors in data.items():
@@ -36,7 +19,7 @@ def read_model_file(default_model_file):
 
     return known_shape_descriptors
 
-def save_model_file(known_shape_descriptors):
+def save_model_file(model_file_path, known_shape_descriptors):
 
     if not known_shape_descriptors:
         return
@@ -45,14 +28,14 @@ def save_model_file(known_shape_descriptors):
     for shpe_name, shape_descriptors in known_shape_descriptors.items():
         data[shpe_name] = shape_descriptors.to_json()
 
-    with open(default_model_file(), "w", encoding="utf-8") as file:
+    with open(model_file_path, "w", encoding="utf-8") as file:
         json.dump(data, file, indent=4, sort_keys=True)
 
-        print("Training model saved to:", default_model_file())
+        print("Training model saved to:", model_file_path)
 
-def save_result_file(image_qualifications, known_shape_descriptors):
+def save_result_file(output_file_path, image_qualifications, known_shape_descriptors):
 
-    with open(default_output_file(),"w") as f:
+    with open(output_file_path,"w") as f:
         line = (",").join(known_shape_descriptors.keys())
         f.write(f"correspondance:,{line}\n")
 
@@ -67,4 +50,4 @@ def save_result_file(image_qualifications, known_shape_descriptors):
                         line += "," + f"{np.nan}" # Error scenario
             f.write(f"{line}\n")
 
-        print("Shape results saved to:", default_output_file())
+        print("Shape results saved to:", output_file_path)

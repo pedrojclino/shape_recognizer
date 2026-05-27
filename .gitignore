@@ -1,0 +1,12 @@
+# Ignore folders at repo level
+/build/
+/tmp/
+
+# Ignore folders recursively
+__pycache__/
+
+# Ignore files
+bin/output.csv
+
+# Ignore files recursively
+*.spec

@@ -1,0 +1,67 @@
+name: Conditional Checks
+
+on:
+  push:
+    branches:
+      - '**' # Trigger on push to any branchjobs:
+
+jobs:
+  check-conditions:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Running training for shapes
+        shell: pwsh
+        run: |
+          $exePath = "$env:GITHUB_WORKSPACE\bin\shape_recognizer.exe"
+          $srcPath = "$env:GITHUB_WORKSPACE\res\shapes_training"
+          $dstPath = "$env:GITHUB_WORKSPACE\bin\model.json"
+          & $exePath -train -src $srcPath -dst $dstPath -ow
+          if ($LASTEXITCODE -eq 0) 
+          {
+            & fc.exe $dstPath "$env:GITHUB_WORKSPACE\tests\model.json" > $null 2>&1
+            if ($LASTEXITCODE -eq 0) 
+            {
+              Write-Output "Match between the generated model file and the reference model file!"
+            } 
+            else 
+            {
+              Write-Error "Mismatch between the generated model file and the reference model file!"
+            }  
+            exit $LASTEXITCODE
+          } 
+          else 
+          {
+            Write-Error "Executable failed with exit code $LASTEXITCODE"
+            exit 1
+          }
+      - name: Running shape classifications
+        shell: pwsh
+        run: |
+          $exePath = "$env:GITHUB_WORKSPACE\bin\shape_recognizer.exe"
+          $srcPath = "$env:GITHUB_WORKSPACE\res\shapes_samples"
+          $modelPath = "$env:GITHUB_WORKSPACE\bin\model.json"
+          $dstPath = "$env:GITHUB_WORKSPACE\bin\output.csv"
+          & $exePath -eval -src $srcPath -model $modelPath -dst $dstPath -ow -cls 0.85
+          if ($LASTEXITCODE -eq 0)
+          {
+            & fc.exe $dstPath "$env:GITHUB_WORKSPACE\tests\output.csv" > $null 2>&1
+            if ($LASTEXITCODE -eq 0) 
+            {
+              Write-Output "Match between the generated output file and the reference output file!"
+            } 
+            else 
+            {
+              Write-Error "Mismatch between the generated output file and the reference output file!"
+            }  
+            exit $LASTEXITCODE
+          } 
+          else 
+          {
+            Write-Error "Executable failed with exit code $LASTEXITCODE"
+            exit 1
+          }

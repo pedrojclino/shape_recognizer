@@ -23,10 +23,10 @@ There's of course room from improvement of the algorithm, but it's good enough t
 ## Examples
 
 Example finding a user drawn shapes:
-![description](https://github.com/pedrojclino/shape_recognizer/res/demo/demo0.gif)
+![description](./res/demo/demo0.gif)
 
 Example finding geometric shapes:
-![description](https://github.com/pedrojclino/shape_recognizer/res/demo/demo1.gif)
+![description](./res/demo/demo1.gif)
 
 ## Usage
 

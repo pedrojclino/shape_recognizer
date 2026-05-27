@@ -22,10 +22,10 @@ There's of course room from improvement of the algorithm, but it's good enough t
 
 ## Examples
 
-Example finding a user drawn shapes:
+Example finding geometric shapes:
 ![description](./res/demo/demo0.gif)
 
-Example finding geometric shapes:
+Example finding a user drawn shapes:
 ![description](./res/demo/demo1.gif)
 
 ## Usage
